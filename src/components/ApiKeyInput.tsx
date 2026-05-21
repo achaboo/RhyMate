@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-const STORAGE_KEY = "rhymate_anthropic_key";
+const STORAGE_KEY = "rhymate_gemini_key";
 
 interface Props {
   onKeyChange: (key: string) => void;
@@ -27,13 +27,13 @@ export function ApiKeyInput({ onKeyChange }: Props) {
 
   return (
     <div className="flex items-center gap-2 bg-[#13131a] border border-gray-800 rounded-xl px-4 py-2.5">
-      <span className="text-xs text-gray-500 shrink-0 font-mono">API KEY</span>
+      <span className="text-xs text-gray-500 shrink-0 font-mono">GEMINI KEY</span>
       <div className="relative flex-1">
         <input
           type={show ? "text" : "password"}
           value={key}
           onChange={e => handleChange(e.target.value)}
-          placeholder="sk-ant-..."
+          placeholder="AIza..."
           className="w-full bg-transparent text-sm text-gray-300 focus:outline-none
                      placeholder:text-gray-700 font-mono pr-6"
         />
@@ -47,12 +47,12 @@ export function ApiKeyInput({ onKeyChange }: Props) {
       {saved && <span className="text-xs text-emerald-500 shrink-0 animate-fade-in">保存済</span>}
       {!key && (
         <a
-          href="https://console.anthropic.com/settings/keys"
+          href="https://aistudio.google.com/apikey"
           target="_blank"
           rel="noreferrer"
-          className="text-xs text-purple-500 hover:text-purple-400 shrink-0 transition-colors"
+          className="text-xs text-blue-400 hover:text-blue-300 shrink-0 transition-colors whitespace-nowrap"
         >
-          取得 →
+          無料で取得 →
         </a>
       )}
     </div>

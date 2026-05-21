@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { ApiKeyInput } from "./components/ApiKeyInput";
 import { RhymeInput } from "./components/RhymeInput";
 import { RhymeResult } from "./components/RhymeResult";
-import { generateRhymes } from "./lib/claude";
+import { generateRhymes } from "./lib/gemini";
 import type { AnalysisResult } from "./types";
 
 export default function App() {
@@ -22,11 +22,13 @@ export default function App() {
       setResult(data);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "不明なエラーが発生しました";
-      setError(msg.includes("401")
-        ? "API キーが無効です。正しいキーを入力してください。"
-        : msg.includes("429")
-        ? "レート制限に達しました。少し待ってから再試行してください。"
-        : msg);
+      setError(
+        msg.includes("API_KEY_INVALID") || msg.includes("400")
+          ? "API キーが無効です。Google AI Studio で発行した Gemini API キーを入力してください。"
+          : msg.includes("429")
+          ? "レート制限に達しました。少し待ってから再試行してください（無料枠: 15回/分）。"
+          : msg
+      );
     } finally {
       setLoading(false);
     }
@@ -66,7 +68,7 @@ export default function App() {
         {result && <RhymeResult data={result} />}
 
         <footer className="mt-16 text-center text-xs text-gray-800">
-          RhyMate — Powered by Claude Sonnet
+          RhyMate — Powered by Gemini（無料で使えます）
         </footer>
       </div>
     </div>

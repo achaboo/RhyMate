@@ -64,7 +64,7 @@ const STRONG_KANA = new Set("カキクケコタテトパピプペポバビブベ
 function impactScore(p: PhoneticData): number {
   let s = 50;
   if (p.vowels.includes("Q")) s += 10;
-  if (p.vowels.at(-1) === "N") s += 8;
+  if (p.vowels[p.vowels.length - 1] === "N") s += 8;
   if (p.mora_count >= 8 && p.mora_count <= 16) s += 5;
   if (p.mora_count < 5) s -= 12;
   else if (p.mora_count > 22) s -= 6;

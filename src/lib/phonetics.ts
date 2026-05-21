@@ -83,3 +83,19 @@ export function buildPhonetic(raw: {
     tail_vowels,
   };
 }
+
+/** カタカナ文字列から直接 PhoneticData を構築（kuromoji の出力から使う） */
+export function buildPhoneticFromKatakana(katakana: string): PhoneticData {
+  const moras = katakanaToMoras(katakana);
+  const vowels = moras.map(m => moraToVowel(m) ?? "a");
+  const vowel_str = vowels.join("");
+  const tail_vowels = vowels.slice(-4);
+  return {
+    katakana,
+    moras,
+    vowels,
+    mora_count: moras.length,
+    vowel_str,
+    tail_vowels,
+  };
+}

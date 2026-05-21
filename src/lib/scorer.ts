@@ -107,7 +107,7 @@ export function scoreRhyme(
   const impact = impactScore(candidate);
   const meme = memeScore(candidate, candidateText);
 
-  const total = tail * 0.35 + vowel * 0.35 + mora * 0.15 + impact * 0.10 + meme * 0.05;
+  const total = tail * 0.45 + vowel * 0.20 + mora * 0.20 + impact * 0.10 + meme * 0.05;
   const grade =
     total >= 80 ? "S" :
     total >= 65 ? "A" :

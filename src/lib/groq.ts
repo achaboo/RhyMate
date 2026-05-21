@@ -25,10 +25,10 @@ const SYSTEM = `お前は日本語の「韻踏み」達人だ。
 例: 「ドラゴンボール」の末尾「ン・ボ・ー・ル」
     →「ジャンボボール」「アンコボール」なども同じ末尾音で韻を踏んでいる
 
-【禁止事項】
+【絶対禁止（1つでも違反したら失格）】
+- 元フレーズに含まれる単語・文字を候補に使うこと（完全に別の語彙を使え）
 - 英単語・アルファベット表記
 - 下品・卑猥・差別的な表現
-- 元フレーズに含まれる単語の流用
 
 【出力形式】以下のJSONのみ返せ。説明文・コードブロック不要。
 {"candidates": [{"text": "候補フレーズ"}]}`;
@@ -64,15 +64,16 @@ export async function generateRhymes(
 
 ↑ 日本語として自然に読めて、かつ発音が「〜${tailMoras}」に近い音で終わるフレーズを${generateCount}個生成せよ。
 
+【絶対禁止】「${text}」に含まれる単語・文字を1文字も使うな。完全に別の語彙で作れ。
+
 条件（優先度順）:
 1. 日本語として意味が通ること（gibberishは絶対禁止）
 2. ${original.mora_count}モーラに合わせること
 3. 発音が末尾「〜${tailMoras}」に近い音で終わること（近いほど良い）
-4. 元フレーズの単語を使わないこと
-5. 日本語のみ（英単語・アルファベット禁止）
-6. 下品・差別的な表現は禁止
-7. 口語・砕けた表現・体言止めなど自由に使ってよい
-8. 候補ごとにテイストを変えること（ユーモア・自虐・エモ・社会風刺など）
+4. 日本語のみ（英単語・アルファベット禁止）
+5. 下品・差別的な表現は禁止
+6. 口語・砕けた表現・体言止めなど自由に使ってよい
+7. 候補ごとにテイストを変えること（ユーモア・自虐・エモ・社会風刺など）
 
 JSONのみで返せ。`;
 
@@ -103,10 +104,20 @@ JSONのみで返せ。`;
   const data = await res.json();
   const raw: RawResponse = JSON.parse(data.choices[0].message.content);
 
+  // 元フレーズから2文字以上の部分文字列を禁止ワードとして抽出
+  const forbidden = new Set<string>();
+  for (let len = 2; len <= text.length; len++) {
+    for (let i = 0; i <= text.length - len; i++) {
+      forbidden.add(text.slice(i, i + len));
+    }
+  }
+  const containsForbidden = (s: string) =>
+    [...forbidden].some(w => s.includes(w));
+
   // ③ 各候補を kuromoji で正確に音韻計算してスコアリング
   const scored = await Promise.all(
     (raw.candidates ?? [])
-      .filter(c => c.text?.trim() && c.text.trim() !== text.trim())
+      .filter(c => c.text?.trim() && c.text.trim() !== text.trim() && !containsForbidden(c.text))
       .map(async c => {
         try {
           const cKana    = await toKatakana(c.text);

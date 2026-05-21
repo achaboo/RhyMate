@@ -1,10 +1,14 @@
 /**
  * Groq API クライアント
- * - 完全無料・クレジットカード不要（console.groq.com でアカウント作成のみ）
+ * - 完全無料・クレジットカード不要（console.groq.com でアかウント作成のみ）
  * - OpenAI 互換 API を fetch で直接呼び出し（追加パッケージ不要）
+ *
+ * 設計方針:
+ *   LLM  → 「末尾の音が合う自然な日本語フレーズ」を大量生成するだけ
+ *   kuromoji → 各候補の音韻を正確に計算してスコアリング・ランキング
  */
 import type { AnalysisResult } from "../types";
-import { buildPhonetic, buildPhoneticFromKatakana } from "./phonetics";
+import { buildPhoneticFromKatakana } from "./phonetics";
 import { scoreRhyme } from "./scorer";
 import { toKatakana } from "./reading";
 
@@ -13,60 +17,26 @@ const MODEL    = "llama-3.3-70b-versatile";
 
 // ─── プロンプト ───────────────────────────────────────────────────────────────
 
-const SYSTEM = `お前は日本語ラップの「音ハメ」職人だ。
-音ハメとは「母音骨格（ボーカルスケルトン）」を全モーラにわたって守りながら、
-全く新しい言葉を当てはめる技法だ。末尾だけ合っても失敗——全スロットが命だ。
+const SYSTEM = `お前は日本語の「韻踏み」達人だ。
+与えられたフレーズと「末尾の音が一致する」新しいフレーズを生成するのが仕事だ。
 
-【母音別カタカナ対応表（必ず参照せよ）】
-a → ア段: ア/カ/ガ/サ/ザ/タ/ダ/ナ/ハ/バ/パ/マ/ヤ/ラ/ワ/ャ/キャ/シャ/チャ/ニャ/ヒャ/ミャ/リャ等
-i → イ段: イ/キ/ギ/シ/ジ/チ/ヂ/ニ/ヒ/ビ/ピ/ミ/リ/ィ/ティ/ディ等
-u → ウ段: ウ/ク/グ/ス/ズ/ツ/ヅ/ヌ/フ/ブ/プ/ム/ユ/ル/ュ/キュ/シュ/チュ/ニュ/ヒュ/ミュ/リュ等
-e → エ段: エ/ケ/ゲ/セ/ゼ/テ/デ/ネ/ヘ/ベ/ペ/メ/レ/ェ/ティ→エ等
-o → オ段: オ/コ/ゴ/ソ/ゾ/ト/ド/ノ/ホ/ボ/ポ/モ/ヨ/ロ/ヲ/ョ/キョ/ショ/チョ/ニョ/ヒョ/ミョ/リョ等
-N → ン（撥音。直前の音と合わせて発音）
-Q → ッ（促音。次の子音を詰める）
-- → ー（長音。直前の母音を伸ばす）
-
-【音ハメの正しい手順】
-STEP1: ユーザーが渡す「母音スロット表」を左から右に見る
-STEP2: スロット1から順に、その母音を持つカタカナを仮置きする
-STEP3: 仮置きした音の列が自然な日本語になるよう言葉を当てはめる
-STEP4: 全スロットの母音が元フレーズと完全一致しているか確認する
-STEP5: OKなら出力。NGならSTEP2に戻る
+【韻とは何か】
+発音したときに末尾数モーラの音が一致すること。
+例: 「ドラゴンボール」の末尾「ン・ボ・ー・ル」
+    →「ジャンボボール」「アンコボール」なども同じ末尾音で韻を踏んでいる
 
 【禁止事項】
-- 英単語・ローマ字・アルファベット表記（日本語・漢字・カタカナのみ）
-- 同じ言い回し・構造の繰り返し
-- 退屈・平凡・予測可能なフレーズ
+- 英単語・アルファベット表記
+- 下品・卑猥・差別的な表現
+- 元フレーズに含まれる単語の流用
 
-【推奨事項】
-- 固有名詞・ネットスラング・Z世代語・毒舌・自虐・社会風刺・時事ネタ
-- 意外性とパンチのある表現
-
-【出力形式】以下のJSONのみ返すこと。説明文・コードブロック不要。
-{
-  "candidates": [
-    {
-      "text": "候補フレーズ",
-      "katakana": "カタカナ読み",
-      "moras": ["モーラ1","モーラ2"],
-      "vowels": ["母音1","母音2"],
-      "mora_count": 数値
-    }
-  ]
-}`;
+【出力形式】以下のJSONのみ返せ。説明文・コードブロック不要。
+{"candidates": [{"text": "候補フレーズ"}]}`;
 
 // ─── 型定義 ───────────────────────────────────────────────────────────────────
 
-interface RawPhonetic {
-  katakana: string;
-  moras: string[];
-  vowels: string[];
-  mora_count: number;
-}
-
 interface RawResponse {
-  candidates: ({ text: string } & RawPhonetic)[];
+  candidates: { text: string }[];
 }
 
 // ─── API 呼び出し ─────────────────────────────────────────────────────────────
@@ -76,62 +46,35 @@ export async function generateRhymes(
   apiKey: string,
   count = 8
 ): Promise<AnalysisResult> {
-  // kuromoji で正確な読みをローカル計算
-  let katakana = "";
-  try {
-    katakana = await toKatakana(text);
-  } catch {
-    // 失敗した場合は LLM に任せる
-  }
+  // ① kuromoji で元フレーズの正確な音韻を取得
+  const katakana = await toKatakana(text);
+  const original = buildPhoneticFromKatakana(katakana);
 
-  const original = katakana
-    ? buildPhoneticFromKatakana(katakana)
-    : null;
+  // 末尾モーラ（最大6）を実際のカタカナで取り出す
+  const tailLen   = Math.min(6, original.moras.length);
+  const tailMoras = original.moras.slice(-tailLen).join("");
+  const tailVowels = original.vowels.slice(-tailLen).join("-");
 
-  const charCount = [...text].length;
+  // ② LLM には「末尾の音を合わせた自然な日本語」の生成だけ頼む
+  //    phonetics 計算は kuromoji に任せるので LLM に計算させない
+  const generateCount = count * 3; // 多めに生成して後で絞る
 
-  // 母音スロット表を視覚的に構築
-  const buildSlotTable = (vowels: string[]): string => {
-    const nums = vowels.map((_, i) => String(i + 1).padStart(2));
-    const vs   = vowels.map(v => v.padEnd(2));
-    return `番号: ${nums.join(" ")}\n母音: ${vs.join(" ")}`;
-  };
+  const userPrompt = `元フレーズ: 「${text}」
+読み: ${katakana}（${original.mora_count}モーラ）
+末尾の音: 〜${tailMoras}（母音: ${tailVowels}）
 
-  const slotTable = original
-    ? buildSlotTable(original.vowels)
-    : "（読み取得失敗：LLMが母音を判断してください）";
+↑ この末尾と同じ音で終わる日本語フレーズを${generateCount}個生成せよ。
 
-  const moraCount = original?.mora_count ?? "不明";
-  const tailVowels = original?.vowels.slice(-6).join("-") ?? "";
+条件（優先度順）:
+1. 発音したとき末尾「〜${tailMoras}」と同じ音で終わること（最重要）
+2. ${original.mora_count}モーラに合わせること
+3. 日本語として意味が通ること
+4. 元フレーズの単語を使わないこと
+5. 日本語のみ（英単語・アルファベット禁止）
+6. 下品・差別的な表現は禁止
+7. 口語・砕けた表現・体言止めなど自由に使ってよい
+8. 候補ごとにテイストを変えること（ユーモア・自虐・エモ・社会風刺など）
 
-  const userPrompt = `【元フレーズ】: ${text}
-【文字数】: ${charCount}文字
-【モーラ数】: ${moraCount}モーラ
-【カタカナ読み】: ${original?.katakana ?? "（不明）"}
-
-■ 母音スロット表（全${moraCount}モーラ）:
-${slotTable}
-
-■ 末尾スロット（最重要・死守）: ${tailVowels}
-
-■ 作り方（必ずこの順序で）:
-STEP1: 末尾スロット「${tailVowels}」を死守できる締めの言葉を先に決める
-STEP2: その締めに向かって自然につながる日本語フレーズを前から組み立てる
-STEP3: 全体の母音列が元フレーズに近いほど加点——ただし日本語として成立することが大前提
-
-■ 絶対条件（優先度順）:
-1. 日本語として読めて意味が通ること（gibberishは即失格）
-2. モーラ数を${moraCount}モーラに完全一致させる（字余り厳禁）
-3. 末尾スロット「${tailVowels}」の母音を完全一致させる（死守）
-4. 全体の母音列はできる限り近づける（ベストエフォート・無理なら犠牲にしてよい）
-5. 元フレーズ「${text}」に含まれる単語・文字を候補に一切使わない
-6. 日本語・漢字・カタカナのみ使用（英単語・アルファベット禁止）
-7. 口語・砕けた表現・ネットスラング・体言止め・省略など自由に使ってよい
-8. 下品・卑猥・差別的な表現は使わない
-9. 面白い・パンチがある・意外性がある内容
-10. 候補${count}個それぞれでテイストを変える（爆笑・自虐・エモ・社会風刺・ほっこり系など）
-
-各候補の音韻解析（katakana・moras・vowels・mora_count）も出力すること。
 JSONのみで返せ。`;
 
   const res = await fetch(GROQ_URL, {
@@ -147,8 +90,8 @@ JSONのみで返せ。`;
         { role: "user",   content: userPrompt },
       ],
       response_format: { type: "json_object" },
-      temperature: 0.9,
-      max_tokens: 3000,
+      temperature: 0.95,
+      max_tokens: 2000,
     }),
   });
 
@@ -161,16 +104,27 @@ JSONのみで返せ。`;
   const data = await res.json();
   const raw: RawResponse = JSON.parse(data.choices[0].message.content);
 
-  const finalOriginal = original ?? buildPhoneticFromKatakana("");
+  // ③ 各候補を kuromoji で正確に音韻計算してスコアリング
+  const scored = await Promise.all(
+    (raw.candidates ?? [])
+      .filter(c => c.text?.trim() && c.text.trim() !== text.trim())
+      .map(async c => {
+        try {
+          const cKana    = await toKatakana(c.text);
+          const phonetic = buildPhoneticFromKatakana(cKana);
+          const score    = scoreRhyme(original, phonetic, c.text);
+          return { text: c.text, phonetic, score };
+        } catch {
+          return null;
+        }
+      })
+  );
 
-  const candidates = (raw.candidates ?? [])
-    .filter(c => c.text?.trim() !== text.trim())
-    .map(c => {
-      const phonetic = buildPhonetic(c);
-      const score    = scoreRhyme(finalOriginal, phonetic, c.text);
-      return { text: c.text, phonetic, score };
-    })
-    .sort((a, b) => b.score.total - a.score.total);
+  // ④ スコア順に並べて上位 count 件を返す
+  const candidates = scored
+    .filter((c): c is NonNullable<typeof c> => c !== null)
+    .sort((a, b) => b.score.total - a.score.total)
+    .slice(0, count);
 
-  return { original: finalOriginal, originalText: text, candidates };
+  return { original, originalText: text, candidates };
 }

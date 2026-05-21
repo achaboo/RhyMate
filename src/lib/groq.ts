@@ -59,7 +59,7 @@ export async function generateRhymes(
 
   // ② LLM には「末尾の音を合わせた自然な日本語」の生成だけ頼む
   //    phonetics 計算は kuromoji に任せるので LLM に計算させない
-  const generateCount = count * 3; // 多めに生成して後で絞る
+  const generateCount = count + 4; // 少し多めに生成して後で絞る
 
   const userPrompt = `元フレーズ: 「${text}」
 読み: ${katakana}（${original.mora_count}モーラ）
@@ -94,7 +94,7 @@ JSONのみで返せ。`;
       ],
       response_format: { type: "json_object" },
       temperature: 0.95,
-      max_tokens: 2000,
+      max_tokens: 1200,
     }),
   });
 

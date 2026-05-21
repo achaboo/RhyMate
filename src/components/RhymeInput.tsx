@@ -14,7 +14,7 @@ interface Props {
 }
 
 export function RhymeInput({ onGenerate, loading, hasKey }: Props) {
-  const [text, setText] = useState(EXAMPLES[0]);
+  const [text, setText] = useState("");
   const ref = useRef<HTMLInputElement>(null);
 
   useEffect(() => { ref.current?.focus(); }, []);

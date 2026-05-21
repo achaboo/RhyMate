@@ -53,7 +53,6 @@ export async function generateRhymes(
   // 末尾モーラ（最大6）を実際のカタカナで取り出す
   const tailLen   = Math.min(6, original.moras.length);
   const tailMoras = original.moras.slice(-tailLen).join("");
-  const tailVowels = original.vowels.slice(-tailLen).join("-");
 
   // ② LLM には「末尾の音を合わせた自然な日本語」の生成だけ頼む
   //    phonetics 計算は kuromoji に任せるので LLM に計算させない
@@ -61,14 +60,14 @@ export async function generateRhymes(
 
   const userPrompt = `元フレーズ: 「${text}」
 読み: ${katakana}（${original.mora_count}モーラ）
-末尾の音: 〜${tailMoras}（母音: ${tailVowels}）
+狙う末尾の音: 〜${tailMoras}
 
-↑ この末尾と同じ音で終わる日本語フレーズを${generateCount}個生成せよ。
+↑ 日本語として自然に読めて、かつ発音が「〜${tailMoras}」に近い音で終わるフレーズを${generateCount}個生成せよ。
 
 条件（優先度順）:
-1. 発音したとき末尾「〜${tailMoras}」と同じ音で終わること（最重要）
+1. 日本語として意味が通ること（gibberishは絶対禁止）
 2. ${original.mora_count}モーラに合わせること
-3. 日本語として意味が通ること
+3. 発音が末尾「〜${tailMoras}」に近い音で終わること（近いほど良い）
 4. 元フレーズの単語を使わないこと
 5. 日本語のみ（英単語・アルファベット禁止）
 6. 下品・差別的な表現は禁止

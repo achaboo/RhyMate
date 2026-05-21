@@ -26,16 +26,17 @@ export function ApiKeyInput({ onKeyChange }: Props) {
   };
 
   return (
-    <div className="flex items-center gap-2 bg-[#13131a] border border-gray-800 rounded-xl px-4 py-2.5">
+    <div className="flex items-center gap-2 bg-[#13131a] border border-gray-800 rounded-xl px-3 py-2.5">
       <span className="text-xs text-gray-500 shrink-0 font-mono">GROQ KEY</span>
-      <div className="relative flex-1">
+      <div className="relative flex-1 min-w-0">
         <input
           type={show ? "text" : "password"}
           value={key}
           onChange={e => handleChange(e.target.value)}
           placeholder="gsk_..."
-          className="w-full bg-transparent text-sm text-gray-300 focus:outline-none
-                     placeholder:text-gray-700 font-mono pr-6"
+          className="w-full bg-transparent text-gray-300 focus:outline-none
+                     placeholder:text-gray-700 font-mono pr-1
+                     text-[16px] sm:text-sm"
         />
       </div>
       <button

@@ -35,7 +35,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white">
+    <div className="min-h-screen bg-[#0a0a0f] text-white overflow-x-hidden">
       <div className="max-w-2xl mx-auto px-4 py-10">
         {/* ヘッダー */}
         <div className="text-center mb-8">

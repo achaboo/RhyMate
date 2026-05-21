@@ -22,7 +22,7 @@ export function RhymeInput({ onGenerate, loading, hasKey }: Props) {
   const submit = () => { if (text.trim() && !loading && hasKey) onGenerate(text.trim()); };
 
   return (
-    <div className="bg-[#13131a] rounded-2xl p-5 border border-gray-800">
+    <div className="bg-[#13131a] rounded-2xl p-4 sm:p-5 border border-gray-800">
       <p className="text-xs text-gray-600 font-mono tracking-widest mb-2">PHRASE</p>
       <div className="flex gap-2">
         <input
@@ -32,21 +32,21 @@ export function RhymeInput({ onGenerate, loading, hasKey }: Props) {
           onChange={e => setText(e.target.value)}
           onKeyDown={e => e.key === "Enter" && submit()}
           placeholder="韻を踏みたいフレーズを入力..."
-          className="flex-1 bg-[#0a0a0f] border border-gray-700 rounded-xl px-4 py-3
-                     text-lg focus:outline-none focus:border-purple-500 transition-colors
+          className="flex-1 min-w-0 bg-[#0a0a0f] border border-gray-700 rounded-xl px-4 py-3
+                     text-[16px] sm:text-lg focus:outline-none focus:border-purple-500 transition-colors
                      placeholder:text-gray-700"
         />
         <button
           onClick={submit}
           disabled={loading || !text.trim() || !hasKey}
-          className="px-6 py-3 bg-purple-600 hover:bg-purple-500 active:bg-purple-700
+          className="shrink-0 px-4 sm:px-6 py-3 bg-purple-600 hover:bg-purple-500 active:bg-purple-700
                      disabled:opacity-40 disabled:cursor-not-allowed rounded-xl font-bold
                      transition-colors whitespace-nowrap"
         >
           {loading ? (
             <span className="flex items-center gap-1.5">
               <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
-              生成中
+              <span className="hidden sm:inline">生成中</span>
             </span>
           ) : "韻踏め 🎤"}
         </button>

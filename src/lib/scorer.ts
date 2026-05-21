@@ -102,7 +102,8 @@ export function scoreRhyme(
 ): RhymeScore {
   const [tail, matched_tail] = tailVowelScore(original.vowels, candidate.vowels);
   const vowel = vowelSimilarity(original.vowel_str, candidate.vowel_str) * 100;
-  const mora = Math.max(0, 100 - Math.abs(original.mora_count - candidate.mora_count) * 8);
+  const moraDiff = Math.abs(original.mora_count - candidate.mora_count);
+  const mora = moraDiff === 0 ? 100 : moraDiff === 1 ? 75 : moraDiff === 2 ? 45 : Math.max(0, 20 - moraDiff * 5);
   const impact = impactScore(candidate);
   const meme = memeScore(candidate, candidateText);
 

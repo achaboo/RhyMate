@@ -1,56 +1,47 @@
 /**
- * Groq API クライアント
- * - 完全無料・クレジットカード不要（console.groq.com でアかウント作成のみ）
- * - OpenAI 互換 API を fetch で直接呼び出し（追加パッケージ不要）
+ * 語感大喜利エンジン — 生成AI + 評価AI の二段構成
  *
- * 設計方針:
- *   LLM  → 「末尾の音が合う自然な日本語フレーズ」を大量生成するだけ
- *   kuromoji → 各候補の音韻を正確に計算してスコアリング・ランキング
+ * Phase 1（生成AI）: 音が近く笑える日本語フレーズを大量生成
+ * Phase 2（評価AI）: 発話快感・映像性・意味飛躍・バカ度を採点
+ * kuromoji: 音スコアを正確に計算
  */
-import type { AnalysisResult } from "../types";
+import type { AnalysisResult, RhymeCandidate } from "../types";
 import { buildPhoneticFromKatakana } from "./phonetics";
-import { scoreRhyme } from "./scorer";
+import { computeSoundScore, buildRhymeScore } from "./scorer";
 import { toKatakana } from "./reading";
 
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const MODEL    = "llama-3.3-70b-versatile";
 
-// ─── プロンプト ───────────────────────────────────────────────────────────────
+// ─── 生成AI システムプロンプト ────────────────────────────────────────────────
 
-const SYSTEM = `日本語韻踏み。末尾の音が近い別フレーズを作る。
-例:「蓼食う虫も好き好き」→「酒飲む父もウキウキ」（末尾u-i-u-i一致・自然な日本語）
-禁止: 元フレーズの単語流用・英単語・下品な表現
-出力: {"candidates":[{"text":"..."}]}`;
+const GEN_SYSTEM = `語感大喜利AI。元フレーズと「音が近く、声に出して気持ちよく、情景が浮かぶ」日本語フレーズを生成する。
 
-// ─── 型定義 ───────────────────────────────────────────────────────────────────
+【成功例】
+「蓼食う虫も好き好き」→「酒飲む父もウキウキ」
+「猫に小判」→「寝込み後半」
+「高円寺でシャケが飲酒運転」→「高低差でバテた登山遠征」
+「南極で迷子ペンギン」→「パイオツでかい子天使」
 
-interface RawResponse {
-  candidates: { text: string }[];
-}
+【成功の理由】意味は飛んでいい。音の流れと発話リズムを守る。情景が浮かぶ。少しアホらしい。
 
-// ─── API 呼び出し ─────────────────────────────────────────────────────────────
+【禁止】元フレーズの単語流用・英単語・下品な表現
+【出力】{"candidates":[{"text":"..."}]}`;
 
-export async function generateRhymes(
-  text: string,
+// ─── 評価AI システムプロンプト ────────────────────────────────────────────────
+
+const EVAL_SYSTEM = `フレーズ採点AI。各フレーズを0-100で採点。
+speech=声に出して気持ちいいか / imagery=情景が浮かぶか / jump=意味が適度に飛んでいるか(近すぎも飛びすぎも低点) / baka=少しアホらしいか
+【出力】{"scores":[{"speech":数,"imagery":数,"jump":数,"baka":数},...]}`;
+
+// ─── API 共通呼び出し ─────────────────────────────────────────────────────────
+
+async function callGroq(
+  system: string,
+  user: string,
   apiKey: string,
-  count = 8
-): Promise<AnalysisResult> {
-  // ① kuromoji で元フレーズの正確な音韻を取得
-  const katakana = await toKatakana(text);
-  const original = buildPhoneticFromKatakana(katakana);
-
-  // 末尾モーラ（最大6）を実際のカタカナで取り出す
-  const tailLen   = Math.min(6, original.moras.length);
-  const tailMoras = original.moras.slice(-tailLen).join("");
-
-  // ② LLM には「末尾の音を合わせた自然な日本語」の生成だけ頼む
-  //    phonetics 計算は kuromoji に任せるので LLM に計算させない
-  const generateCount = count + 4; // 少し多めに生成して後で絞る
-
-  const userPrompt = `元:「${text}」読み:${katakana}(${original.mora_count}モーラ) 末尾:〜${tailMoras}
-
-↑と末尾音が近い日本語フレーズを${generateCount}個。①意味が通る②${original.mora_count}モーラ③末尾「〜${tailMoras}」に近い音④元の単語不使用⑤口語OK⑥各テイスト違える。JSONのみ。`;
-
+  maxTokens: number
+): Promise<Record<string, unknown>> {
   const res = await fetch(GROQ_URL, {
     method: "POST",
     headers: {
@@ -60,53 +51,105 @@ export async function generateRhymes(
     body: JSON.stringify({
       model: MODEL,
       messages: [
-        { role: "system", content: SYSTEM },
-        { role: "user",   content: userPrompt },
+        { role: "system", content: system },
+        { role: "user",   content: user },
       ],
       response_format: { type: "json_object" },
       temperature: 0.95,
-      max_tokens: 1200,
+      max_tokens: maxTokens,
     }),
   });
-
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
-    const msg = err?.error?.message ?? res.statusText;
-    throw new Error(`${res.status}::${msg}`);
+    throw new Error(`${res.status}::${(err as { error?: { message?: string } })?.error?.message ?? res.statusText}`);
   }
-
   const data = await res.json();
-  const raw: RawResponse = JSON.parse(data.choices[0].message.content);
+  return JSON.parse(data.choices[0].message.content);
+}
 
-  // 元フレーズから2文字以上の部分文字列を禁止ワードとして抽出
+// ─── メイン ──────────────────────────────────────────────────────────────────
+
+export async function generateRhymes(
+  text: string,
+  apiKey: string,
+  count = 8
+): Promise<AnalysisResult> {
+  // ① kuromoji で元フレーズの音韻を正確に取得
+  const katakana = await toKatakana(text);
+  const original = buildPhoneticFromKatakana(katakana);
+  const tailLen   = Math.min(6, original.moras.length);
+  const tailMoras = original.moras.slice(-tailLen).join("");
+
+  // 禁止ワード（元フレーズの2文字以上の部分文字列）
   const forbidden = new Set<string>();
-  for (let len = 2; len <= text.length; len++) {
-    for (let i = 0; i <= text.length - len; i++) {
+  for (let len = 2; len <= text.length; len++)
+    for (let i = 0; i <= text.length - len; i++)
       forbidden.add(text.slice(i, i + len));
-    }
-  }
-  const containsForbidden = (s: string) =>
-    [...forbidden].some(w => s.includes(w));
+  const hasForbidden = (s: string) => [...forbidden].some(w => s.includes(w));
 
-  // ③ 各候補を kuromoji で正確に音韻計算してスコアリング
-  const scored = await Promise.all(
-    (raw.candidates ?? [])
-      .filter(c => c.text?.trim() && c.text.trim() !== text.trim() && !containsForbidden(c.text))
-      .map(async c => {
+  const generateCount = count + 6;
+
+  // ② Phase 1：生成AI
+  const genData = await callGroq(
+    GEN_SYSTEM,
+    `元:「${text}」読み:${katakana}(${original.mora_count}モーラ) 末尾:〜${tailMoras}\n語感大喜利フレーズを${generateCount}個。①日本語として意味が通る②${original.mora_count}モーラ③末尾「〜${tailMoras}」に近い音④元の単語不使用⑤各テイスト違える。JSONのみ。`,
+    apiKey,
+    900
+  );
+
+  const rawCandidates = ((genData.candidates ?? []) as { text?: string }[])
+    .filter(c => c.text?.trim() && c.text.trim() !== text.trim() && !hasForbidden(c.text));
+
+  if (rawCandidates.length === 0) {
+    return { original, originalText: text, candidates: [] };
+  }
+
+  // ③ Phase 2：評価AI（失敗してもデフォルト値でフォールバック）
+  type AiScore = { speech: number; imagery: number; jump: number; baka: number };
+  const defaultScore: AiScore = { speech: 50, imagery: 50, jump: 50, baka: 50 };
+
+  let aiScores: AiScore[] = rawCandidates.map(() => defaultScore);
+  try {
+    const evalData = await callGroq(
+      EVAL_SYSTEM,
+      `元:「${text}」への返し:\n${rawCandidates.map((c, i) => `${i + 1}.${c.text}`).join(" / ")}`,
+      apiKey,
+      600
+    );
+    const raw = (evalData.scores ?? []) as Partial<AiScore>[];
+    aiScores = rawCandidates.map((_, i) => ({
+      speech:  Math.min(100, Math.max(0, raw[i]?.speech  ?? 50)),
+      imagery: Math.min(100, Math.max(0, raw[i]?.imagery ?? 50)),
+      jump:    Math.min(100, Math.max(0, raw[i]?.jump    ?? 50)),
+      baka:    Math.min(100, Math.max(0, raw[i]?.baka    ?? 50)),
+    }));
+  } catch {
+    // 評価API失敗時はデフォルト値のまま続行
+  }
+
+  // ④ kuromoji で各候補の音韻計算 → スコア合算 → ランキング
+  const candidates: RhymeCandidate[] = (
+    await Promise.all(
+      rawCandidates.map(async (c, i) => {
         try {
-          const cKana    = await toKatakana(c.text);
+          const cKana    = await toKatakana(c.text!);
           const phonetic = buildPhoneticFromKatakana(cKana);
-          const score    = scoreRhyme(original, phonetic, c.text);
-          return { text: c.text, phonetic, score };
+          const { sound_score, matched_tail } = computeSoundScore(original, phonetic);
+          const ai = aiScores[i];
+          const score = buildRhymeScore(sound_score, matched_tail, {
+            speech_score:  ai.speech,
+            imagery_score: ai.imagery,
+            jump_score:    ai.jump,
+            baka_score:    ai.baka,
+          });
+          return { text: c.text!, phonetic, score };
         } catch {
           return null;
         }
       })
-  );
-
-  // ④ スコア順に並べて上位 count 件を返す
-  const candidates = scored
-    .filter((c): c is NonNullable<typeof c> => c !== null)
+    )
+  )
+    .filter((c): c is RhymeCandidate => c !== null)
     .sort((a, b) => b.score.total - a.score.total)
     .slice(0, count);
 

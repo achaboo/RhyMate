@@ -1,15 +1,15 @@
 /**
- * 韻スコアリング — 純粋な TypeScript 実装（ネットワーク呼び出しなし）
+ * 音スコアリング — kuromoji の正確な音韻データを使って計算
+ * AI 評価スコア（発話快感・映像性・意味飛躍・バカ度）は groq.ts 側で付与
  */
 import type { PhoneticData, RhymeScore } from "../types";
 
-// ─── 末尾母音スコア ────────────────────────────────────────────────────────────
+// ─── 末尾母音スコア ───────────────────────────────────────────────────────────
 
 function tailVowelScore(v1: string[], v2: string[], k = 6): [number, number] {
   const t1 = v1.slice(-k);
   const t2 = v2.slice(-k);
 
-  // 末尾から連続一致数
   let consecutive = 0;
   const pairs = [...t1].reverse().map((a, i) => [a, [...t2].reverse()[i]] as const);
   for (const [a, b] of pairs) {
@@ -18,7 +18,6 @@ function tailVowelScore(v1: string[], v2: string[], k = 6): [number, number] {
     else break;
   }
 
-  // 末尾 k 個の総一致数（連続でなくても加点）
   const nonConsec = pairs.filter(([a, b]) => b !== undefined && a === b).length;
   const maxLen = Math.max(t1.length, t2.length) || 1;
   let score = ((consecutive * 2 + nonConsec) / (maxLen * 3)) * 100;
@@ -57,69 +56,42 @@ function vowelSimilarity(vs1: string, vs2: string): number {
   return 1 - dp[m][n] / Math.max(m, n);
 }
 
-// ─── インパクトスコア ─────────────────────────────────────────────────────────
+// ─── 音スコア（kuromoji ベース）─────────────────────────────────────────────
 
-const STRONG_KANA = new Set("カキクケコタテトパピプペポバビブベボ".split(""));
-
-function impactScore(p: PhoneticData): number {
-  let s = 50;
-  if (p.vowels.includes("Q")) s += 10;
-  if (p.vowels[p.vowels.length - 1] === "N") s += 8;
-  if (p.mora_count >= 8 && p.mora_count <= 16) s += 5;
-  if (p.mora_count < 5) s -= 12;
-  else if (p.mora_count > 22) s -= 6;
-  const strong = [...p.katakana].filter(c => STRONG_KANA.has(c)).length;
-  s += Math.min(12, strong * 3);
-  return Math.min(100, Math.max(0, s));
-}
-
-// ─── ミーム感スコア ───────────────────────────────────────────────────────────
-
-const MEME_ENDINGS = ["案件", "事案", "発見", "確認", "以上", "完全", "元気",
-                      "人生", "解散", "終焉", "崩壊", "限界", "頂点", "覚醒"];
-
-function memeScore(p: PhoneticData, originalText: string): number {
-  let s = 40;
-  const len = originalText.length;
-  if (len >= 10 && len <= 25) s += 15;
-  else if (len < 10) s += 5;
-  for (const v of "aiueo") {
-    if (p.vowel_str.split("").filter(x => x === v).length >= 3) { s += 5; break; }
-  }
-  for (const e of MEME_ENDINGS) {
-    if (originalText.slice(-8).includes(e)) { s += 12; break; }
-  }
-  if (originalText.includes("！") || originalText.includes("!")) s += 5;
-  return Math.min(100, Math.max(0, s));
-}
-
-// ─── メイン ──────────────────────────────────────────────────────────────────
-
-export function scoreRhyme(
+export function computeSoundScore(
   original: PhoneticData,
-  candidate: PhoneticData,
-  candidateText: string
-): RhymeScore {
+  candidate: PhoneticData
+): { sound_score: number; matched_tail: number } {
   const [tail, matched_tail] = tailVowelScore(original.vowels, candidate.vowels);
   const vowel = vowelSimilarity(original.vowel_str, candidate.vowel_str) * 100;
   const moraDiff = Math.abs(original.mora_count - candidate.mora_count);
   const mora = moraDiff === 0 ? 100 : moraDiff === 1 ? 75 : moraDiff === 2 ? 45 : Math.max(0, 20 - moraDiff * 5);
-  const impact = impactScore(candidate);
-  const meme = memeScore(candidate, candidateText);
+  const sound_score = Math.min(100, Math.round((tail * 0.5 + vowel * 0.3 + mora * 0.2) * 10) / 10);
+  return { sound_score, matched_tail };
+}
 
-  const total = tail * 0.45 + vowel * 0.20 + mora * 0.20 + impact * 0.10 + meme * 0.05;
-  const grade =
-    total >= 80 ? "S" :
-    total >= 65 ? "A" :
-    total >= 50 ? "B" : "C";
+// ─── RhymeScore 組み立て ─────────────────────────────────────────────────────
 
+export function buildRhymeScore(
+  sound_score: number,
+  matched_tail: number,
+  ai: { speech_score: number; imagery_score: number; jump_score: number; baka_score: number }
+): RhymeScore {
+  const total =
+    sound_score        * 0.40 +
+    ai.speech_score    * 0.25 +
+    ai.imagery_score   * 0.15 +
+    ai.jump_score      * 0.10 +
+    ai.baka_score      * 0.10;
+  const t = Math.round(total * 10) / 10;
+  const grade = t >= 80 ? "S" : t >= 65 ? "A" : t >= 50 ? "B" : "C";
   return {
-    total: Math.round(total * 10) / 10,
-    tail_score: Math.round(tail * 10) / 10,
-    vowel_score: Math.round(vowel * 10) / 10,
-    mora_score: Math.round(mora * 10) / 10,
-    impact_score: Math.round(impact * 10) / 10,
-    meme_score: Math.round(meme * 10) / 10,
+    total: t,
+    sound_score,
+    speech_score:  Math.round(ai.speech_score  * 10) / 10,
+    imagery_score: Math.round(ai.imagery_score * 10) / 10,
+    jump_score:    Math.round(ai.jump_score    * 10) / 10,
+    baka_score:    Math.round(ai.baka_score    * 10) / 10,
     matched_tail,
     grade: grade as RhymeScore["grade"],
   };

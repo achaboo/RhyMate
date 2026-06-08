@@ -80,11 +80,15 @@ export async function generateRhymes(
   const tailLen   = Math.min(6, original.moras.length);
   const tailMoras = original.moras.slice(-tailLen).join("");
 
-  // 禁止ワード（元フレーズの2文字以上の部分文字列）
+  // 禁止ワード — 漢字・カタカナを含む2文字以上の部分文字列のみ対象
+  // (純ひらがなの助詞・語尾「くて」「すぎ」等は除外し過剰フィルタを防ぐ)
+  const HAS_KANJI_KATA = /[㐀-鿿豈-﫿゠-ヿ]/;
   const forbidden = new Set<string>();
   for (let len = 2; len <= text.length; len++)
-    for (let i = 0; i <= text.length - len; i++)
-      forbidden.add(text.slice(i, i + len));
+    for (let i = 0; i <= text.length - len; i++) {
+      const sub = text.slice(i, i + len);
+      if (HAS_KANJI_KATA.test(sub)) forbidden.add(sub);
+    }
   const hasForbidden = (s: string) => [...forbidden].some(w => s.includes(w));
 
   const generateCount = count + 6;
